@@ -1,0 +1,55 @@
+version: "3.8"
+
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.17
+    container_name: etcd
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    environment:
+      ETCD_NAME: etcd0
+      ETCD_INITIAL_CLUSTER: etcd0=http://etcd:2380
+      ETCD_INITIAL_CLUSTER_TOKEN: etcd-cluster
+      ETCD_INITIAL_CLUSTER_STATE: new
+      ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
+      ETCD_ADVERTISE_CLIENT_URLS: http://etcd:2379
+      ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
+    healthcheck:
+      test: ["CMD", "etcdctl", "--endpoints=http://localhost:2379", "endpoint", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Local MongoDB — used when MONGO_URI is not set to an Atlas cluster.
+  # To use MongoDB Atlas instead, remove this service and set MONGO_URI in
+  # the app service (or in a .env file) to your Atlas connection string:
+  #   MONGO_URI=mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/?retryWrites=true&w=majority
+  
+
+  app:
+    build: .
+    container_name: dscasestudy-app
+    ports:
+      - "8080:8080"
+    environment:
+      ETCD_ENDPOINT: etcd:2379
+      # Local MongoDB (default). Replace with your Atlas URI to use the cloud cluster:
+      #   MONGO_URI: "mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/?retryWrites=true&w=majority"
+      MONGO_URI: mongodb+srv://punithvendra:qwer@cluster0.1go1g1o.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+      MONGO_DB: test
+
+      # Optional: override the MongoDB database name (default: dscasestudy)
+      # MONGO_DB: myapp
+    depends_on:
+      etcd:
+        condition: service_started
+      
+    restart: unless-stopped
+    volumes:
+      - uploads_data:/app/uploads
+
+volumes:
+  uploads_data:
+ 

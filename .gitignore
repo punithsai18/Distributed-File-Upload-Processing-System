@@ -1,0 +1,9 @@
+# Go binaries
+gopro
+*.exe
+
+# Uploaded files (runtime data)
+uploads/
+
+# Frontend dependencies (not build output — dist/ is committed and embedded)
+frontend/node_modules/

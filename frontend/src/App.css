@@ -1,0 +1,234 @@
+/* ── Reset & base ───────────────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: #0f1117;
+  color: #e1e4e8;
+  min-height: 100vh;
+}
+
+#root { max-width: 780px; margin: 0 auto; padding: 2rem 1rem; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.app-header { text-align: center; margin-bottom: 2rem; }
+.app-header h1 { font-size: 2rem; margin-bottom: .4rem; }
+.subtitle { color: #8b949e; font-size: .9rem; }
+
+.health-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  margin-top: .8rem;
+  padding: .3rem .8rem;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 20px;
+  font-size: .8rem;
+  color: #8b949e;
+}
+.dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block;
+}
+.dot.green  { background: #3fb950; }
+.dot.yellow { background: #d29922; }
+
+/* ── Drop zone ──────────────────────────────────────────────────────────── */
+.drop-zone {
+  border: 2px dashed #30363d;
+  border-radius: 12px;
+  padding: 3rem 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color .2s, background .2s;
+  background: #161b22;
+}
+.drop-zone:hover, .drop-zone.dragging {
+  border-color: #58a6ff;
+  background: #0d1f33;
+}
+.drop-icon { font-size: 2.5rem; margin-bottom: .8rem; }
+.hint { color: #8b949e; font-size: .85rem; margin-top: .5rem; }
+
+/* ── File list ──────────────────────────────────────────────────────────── */
+.file-list { margin-top: 2rem; }
+.file-list h2 { margin-bottom: 1rem; font-size: 1.1rem; color: #8b949e; }
+
+.file-row {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: .9rem 1rem;
+  margin-bottom: .6rem;
+  transition: border-color .2s;
+}
+.file-row:hover { border-color: #58a6ff44; }
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  flex-wrap: wrap;
+}
+.file-name  { font-weight: 600; word-break: break-all; }
+.file-size  { color: #8b949e; font-size: .8rem; }
+.file-date  { color: #8b949e; font-size: .75rem; font-style: italic; margin-left: auto; }
+.file-hash  {
+  font-family: monospace;
+  font-size: .75rem;
+  color: #8b949e;
+  background: #0d1117;
+  padding: .1rem .4rem;
+  border-radius: 4px;
+}
+
+.file-meta {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  margin-top: .4rem;
+  flex-wrap: wrap;
+}
+.worker-badge {
+  font-size: .75rem;
+  padding: .15rem .5rem;
+  background: #1f6feb33;
+  border: 1px solid #1f6feb;
+  border-radius: 12px;
+  color: #58a6ff;
+}
+
+/* ── Status badges ──────────────────────────────────────────────────────── */
+.status-badge {
+  font-size: .75rem;
+  padding: .15rem .6rem;
+  border-radius: 12px;
+  font-weight: 600;
+}
+.status-uploading  { background: #1f6feb22; border: 1px solid #1f6feb; color: #58a6ff; }
+.status-queued     { background: #6e768122; border: 1px solid #6e7681; color: #8b949e; }
+.status-processing { background: #d2992222; border: 1px solid #d29922; color: #e3b341;
+  animation: pulse 1.2s ease-in-out infinite; }
+.status-done       { background: #3fb95022; border: 1px solid #3fb950; color: #3fb950; }
+.status-duplicate  { background: #d2992222; border: 1px solid #d29922; color: #e3b341; }
+.status-error      { background: #f8514922; border: 1px solid #f85149; color: #f85149; }
+
+.file-message { font-size: .8rem; color: #8b949e; margin-top: .3rem; }
+
+/* ── Download button ─────────────────────────────────────────────────────── */
+.download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .75rem;
+  padding: .15rem .6rem;
+  border-radius: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  background: #3fb95022;
+  border: 1px solid #3fb950;
+  color: #3fb950;
+  transition: background .2s, color .2s;
+}
+.download-btn:hover {
+  background: #3fb950;
+  color: #0f1117;
+}
+
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.5 } }
+
+/* ── Delete button ───────────────────────────────────────────────────────── */
+.delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .75rem;
+  padding: .15rem .6rem;
+  border-radius: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #f8514922;
+  border: 1px solid #f85149;
+  color: #f85149;
+  transition: background .2s, color .2s;
+}
+.delete-btn:hover {
+  background: #f85149;
+  color: #0f1117;
+}
+
+/* ── Host login ──────────────────────────────────────────────────────────── */
+.host-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .5rem;
+  margin-top: .8rem;
+}
+.host-login-toggle {
+  font-size: .8rem;
+  padding: .25rem .8rem;
+  border-radius: 20px;
+  background: #161b22;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.host-login-toggle:hover { border-color: #58a6ff; color: #58a6ff; }
+.host-login-form {
+  display: flex;
+  gap: .4rem;
+}
+.host-token-input {
+  font-size: .8rem;
+  padding: .25rem .6rem;
+  border-radius: 8px;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #e1e4e8;
+  outline: none;
+}
+.host-token-input:focus { border-color: #58a6ff; }
+.host-login-btn {
+  font-size: .8rem;
+  padding: .25rem .7rem;
+  border-radius: 8px;
+  background: #1f6feb;
+  border: 1px solid #1f6feb;
+  color: #fff;
+  cursor: pointer;
+  transition: background .2s;
+}
+.host-login-btn:hover { background: #388bfd; }
+.host-status {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.host-badge {
+  font-size: .8rem;
+  padding: .2rem .6rem;
+  border-radius: 20px;
+  background: #1f6feb33;
+  border: 1px solid #1f6feb;
+  color: #58a6ff;
+}
+.host-logout-btn {
+  font-size: .75rem;
+  padding: .2rem .6rem;
+  border-radius: 20px;
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  cursor: pointer;
+  transition: border-color .2s, color .2s;
+}
+.host-logout-btn:hover { border-color: #f85149; color: #f85149; }
+.host-error {
+  font-size: .8rem;
+  color: #f85149;
+  margin: 0;
+}
+
