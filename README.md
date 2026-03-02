@@ -550,5 +550,3 @@ etcd uses the **Raft consensus algorithm** which guarantees:
 | MongoDB | Files saved to `./uploads/` only; downloads served from disk |
 
 The backend always starts regardless of which services are reachable.
-#   D i s t r i b u t e d - F i l e - U p l o a d - P r o c e s s i n g - S y s t e m  
- 
