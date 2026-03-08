@@ -56,13 +56,19 @@ var (
 	mongoDB    *mongo.Database
 	gridBucket *gridfs.Bucket
 
-	storeMu   sync.RWMutex
+	storeMu sync.RWMutex
+	// Algorithm 3: Content-Addressable Storage. We index files by their SHA-256 hash
+	// instead of filenames. This ensures deduplication and data integrity.
 	fileStore = make(map[string]*FileStatus) // hash → status
 
 	workQueue = make(chan *FileStatus, 100)
 	uploadDir = "./uploads"
 
 	hostToken string // set from HOST_TOKEN env var; empty = delete disabled
+
+	// Leader election state — updated by runLeaderElection goroutines.
+	leaderStateMu sync.RWMutex
+	currentLeader string
 )
 
 // ─── MongoDB helpers ────────────────────────────────────────────────────────────
@@ -103,6 +109,8 @@ func mongoSaveFile(hash, filename string, content []byte) {
 		}
 	}
 
+	// Algorithm 5: GridFS Chunking. MongoDB splits the binary data into 255KB chunks
+	// stored across fs.files and fs.chunks collections.
 	uploadStream, err := gridBucket.OpenUploadStream(hash,
 		options.GridFSUpload().SetMetadata(bson.M{"originalName": filename}))
 	if err != nil {
@@ -182,6 +190,101 @@ func restoreFileStore() {
 	}
 	if count > 0 {
 		log.Printf("♻  Restored %d file(s) from %s", count, uploadDir)
+	}
+}
+
+// ─── Leader Election ──────────────────────────────────────────────────────────
+
+// runLeaderElection campaigns for cluster leadership using etcd's election API.
+// Exactly one candidate wins the election and becomes the coordinator; the
+// identity of the current leader is stored in currentLeader and exposed via
+// the /health endpoint.  If etcd is unavailable the function returns
+// immediately, leaving currentLeader empty.  When ctx is cancelled the leader
+// resigns gracefully before returning.
+func runLeaderElection(ctx context.Context, candidateID string) {
+	if etcdClient == nil {
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		sess, err := concurrency.NewSession(etcdClient,
+			concurrency.WithContext(ctx),
+			concurrency.WithTTL(15))
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("[%s] leader-election: session error: %v — retrying in 5s", candidateID, err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+
+		// Algorithm 4: Leader Election via etcd.
+		// All nodes "campaign" for the coordinator role. One wins, others wait.
+		election := concurrency.NewElection(sess, "/election/coordinator")
+		log.Printf("[%s] 🗳  campaigning for leadership", candidateID)
+
+		// Campaign blocks until this candidate is elected or ctx is done.
+		if err := election.Campaign(ctx, candidateID); err != nil {
+			sess.Close()
+			if ctx.Err() != nil {
+				return
+			}
+			log.Printf("[%s] leader-election: campaign error: %v — retrying in 5s", candidateID, err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(5 * time.Second):
+			}
+			continue
+		}
+
+		// This candidate is now the elected leader.
+		leaderStateMu.Lock()
+		currentLeader = candidateID
+		leaderStateMu.Unlock()
+		log.Printf("[%s] 👑 elected as cluster leader", candidateID)
+
+		// Hold leadership until the session expires or the context is cancelled.
+		select {
+		case <-ctx.Done():
+			// Resign gracefully so another candidate can take over immediately.
+			// Use context.Background() with a short timeout instead of the
+			// cancelled ctx so the resign RPC can still reach etcd during shutdown.
+			resignCtx, resignCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := election.Resign(resignCtx); err != nil {
+				log.Printf("[%s] leader-election: resign error: %v", candidateID, err)
+			}
+			resignCancel()
+			sess.Close()
+			leaderStateMu.Lock()
+			if currentLeader == candidateID {
+				currentLeader = ""
+			}
+			leaderStateMu.Unlock()
+			log.Printf("[%s] 📤 resigned leadership (shutdown)", candidateID)
+			return
+
+		case <-sess.Done():
+			// Session lease expired — lost leadership; re-campaign.
+			leaderStateMu.Lock()
+			if currentLeader == candidateID {
+				currentLeader = ""
+			}
+			leaderStateMu.Unlock()
+			log.Printf("[%s] ⚠  session expired — lost leadership, re-campaigning", candidateID)
+			sess.Close()
+		}
 	}
 }
 
@@ -269,10 +372,19 @@ func main() {
 		}
 	}
 
-	// Launch worker goroutines that simulate distributed workers.
+	// Algorithm 7: Worker Pool Pattern.
+	// We spawn a fixed number of goroutines to handle background processing.
 	const numWorkers = 3
 	for i := 1; i <= numWorkers; i++ {
 		go runWorker(fmt.Sprintf("worker-%d", i))
+	}
+
+	// Each worker campaigns for cluster leadership via etcd leader election.
+	// The elected leader is tracked in currentLeader and exposed on /health.
+	electionCtx, electionCancel := context.WithCancel(context.Background())
+	defer electionCancel()
+	for i := 1; i <= numWorkers; i++ {
+		go runLeaderElection(electionCtx, fmt.Sprintf("worker-%d", i))
 	}
 
 	mux := http.NewServeMux()
@@ -378,6 +490,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "cannot read file", http.StatusInternalServerError)
 		return
 	}
+	// Algorithm 3: SHA-256 Hashing. Read all bytes and produce a unique hash.
 	sum := sha256.Sum256(content)
 	hash := hex.EncodeToString(sum[:])
 
@@ -385,6 +498,7 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	storeMu.Lock()
 	if existing, ok := fileStore[hash]; ok {
 		storeMu.Unlock()
+		log.Printf("⚠  Duplicate detected! Hash %s already exists (status: %s, filename: %s)", hash[:12], existing.Status, existing.Filename)
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(UploadResponse{
 			Hash:       hash,
@@ -525,6 +639,8 @@ func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	// Algorithm 6: Constant-Time Comparison.
+	// Prevents timing attacks by comparing tokens character-by-character in a fixed time.
 	if hostToken == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Host-Token")), []byte(hostToken)) != 1 {
 		jsonError(w, "forbidden", http.StatusForbidden)
 		return
@@ -589,16 +705,21 @@ func handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	etcdOK := etcdClient != nil
 	mongoOK := mongoDB != nil
+
+	leaderStateMu.RLock()
+	leader := currentLeader
+	leaderStateMu.RUnlock()
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":    "ok",
 		"etcd":      etcdOK,
 		"mongo":     mongoOK,
 		"workers":   3,
+		"leader":    leader,
 		"timestamp": time.Now().UTC(),
 	})
 }
@@ -626,6 +747,9 @@ func processFile(workerID string, entry *FileStatus) {
 			log.Printf("[%s] etcd session unavailable (%v) — falling back to standalone", workerID, err)
 		} else {
 			defer sess.Close()
+			// Algorithm 2: Distributed Locking (etcd Mutex).
+			// This ensures "Exactly-Once" processing across the whole cluster.
+			// Powered by Raft consensus internally in etcd.
 			mu := concurrency.NewMutex(sess, lockKey)
 			lockCtx, lockCancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer lockCancel()
@@ -635,19 +759,49 @@ func processFile(workerID string, entry *FileStatus) {
 				log.Printf("[%s] lock error: %v — falling back to standalone", workerID, err)
 			} else {
 				usingLock = true
-				log.Printf("[%s] 🔒 lock acquired for %s", workerID, entry.Hash[:12])
+				log.Printf("[%s] 🔒 lock acquired for hash %s", workerID, entry.Hash[:12])
+
+				// Re-check status after acquiring lock.
+				// Another worker might have finished it while we were waiting for the lock.
+				storeMu.RLock()
+				currentStatus := entry.Status
+				storeMu.RUnlock()
+
+				if currentStatus == "done" || currentStatus == "duplicate" {
+					log.Printf("[%s] ⏭  Skipping: Hash %s already processed by another worker", workerID, entry.Hash[:12])
+					mu.Unlock(context.Background())
+					log.Printf("[%s] 🔓 lock released for hash %s (skipped)", workerID, entry.Hash[:12])
+					return
+				}
+
 				defer func() {
 					releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 5*time.Second)
 					defer releaseCancel()
 					mu.Unlock(releaseCtx) //nolint:errcheck
-					log.Printf("[%s] 🔓 lock released for %s", workerID, entry.Hash[:12])
+					log.Printf("[%s] 🔓 lock released for hash %s", workerID, entry.Hash[:12])
 				}()
 			}
 		}
 	}
 
 	if !usingLock {
+		storeMu.RLock()
+		currentStatus := entry.Status
+		storeMu.RUnlock()
+		if currentStatus == "done" || currentStatus == "duplicate" {
+			log.Printf("[%s] ⏭  Skipping: Hash %s already processed (standalone mode)", workerID, entry.Hash[:12])
+			return
+		}
 		log.Printf("[%s] processing %s (standalone mode)", workerID, entry.Hash[:12])
+	}
+
+	// Log when the elected leader is the one doing this processing — purely
+	// informational so operators can see which worker holds coordinator status.
+	leaderStateMu.RLock()
+	isCoordinator := currentLeader == workerID
+	leaderStateMu.RUnlock()
+	if isCoordinator {
+		log.Printf("[%s] 👑 processing as elected cluster leader", workerID)
 	}
 
 	// Mark as processing.
