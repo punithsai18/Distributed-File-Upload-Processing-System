@@ -57,7 +57,7 @@ ip route get 1 | awk '{print $7; exit}'
 hostname -I | awk '{print $1}'
 ```
 
-Example result: `192.168.1.10`
+Example result: `10.84.79.147`
 
 ### Update `docker-compose.yml`
 
@@ -77,7 +77,7 @@ services:
       ETCD_INITIAL_CLUSTER_TOKEN: etcd-cluster
       ETCD_INITIAL_CLUSTER_STATE: new
       ETCD_LISTEN_CLIENT_URLS: http://0.0.0.0:2379
-      ETCD_ADVERTISE_CLIENT_URLS: http://192.168.1.10:2379   # ← host LAN IP
+      ETCD_ADVERTISE_CLIENT_URLS: http://10.84.79.147:2379   # ← host LAN IP
       ETCD_LISTEN_PEER_URLS: http://0.0.0.0:2380
       ETCD_INITIAL_ADVERTISE_PEER_URLS: http://etcd:2380
     healthcheck:
@@ -113,7 +113,7 @@ The etcd endpoint is hardcoded in `main.go` as `localhost:2379`. On every **remo
 ```go
 // main.go  (lines ~60-80)
 etcdClient, err = clientv3.New(clientv3.Config{
-    Endpoints:   []string{"192.168.1.10:2379"},   // ← host LAN IP
+    Endpoints:   []string{"10.84.79.147:2379"},   // ← host LAN IP
     DialTimeout: 5 * time.Second,
     Logger:      zap.NewNop(),
 })
@@ -138,7 +138,7 @@ etcdClient, err = clientv3.New(clientv3.Config{
 > Then start the backend on each remote device with:
 >
 > ```bash
-> ETCD_ENDPOINT=192.168.1.10:2379 go run main.go
+> ETCD_ENDPOINT=10.84.79.147:2379 go run main.go
 > ```
 
 ---
@@ -161,13 +161,13 @@ git clone https://github.com/punithsai18/dsCaseStudy.git
 cd dsCaseStudy
 
 # Point the backend to Device A's etcd
-ETCD_ENDPOINT=192.168.1.10:2379 go run main.go
+ETCD_ENDPOINT=10.84.79.147:2379 go run main.go
 ```
 
 Expected output on each device:
 
 ```
-✔  Connected to etcd at 192.168.1.10:2379
+✔  Connected to etcd at 10.84.79.147:2379
 [worker-1] started
 [worker-2] started
 [worker-3] started
@@ -182,10 +182,10 @@ From any remote device, confirm it can reach etcd:
 
 ```bash
 # Using curl
-curl http://192.168.1.10:2379/health
+curl http://10.84.79.147:2379/health
 
 # Using etcdctl (if installed)
-etcdctl --endpoints=http://192.168.1.10:2379 endpoint health
+etcdctl --endpoints=http://10.84.79.147:2379 endpoint health
 ```
 
 Expected response:
